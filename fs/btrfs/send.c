@@ -2337,6 +2337,7 @@ verbose_printk("btrfs: send_create_inode %llu\n", sctx->cur_ino);
 		goto out;
 
 	TLV_PUT_PATH(sctx, BTRFS_SEND_A_PATH, p);
+	TLV_PUT_U64(sctx, BTRFS_SEND_A_INO, sctx->cur_ino);
 
 	if (S_ISLNK(mode)) {
 		fs_path_reset(p);
