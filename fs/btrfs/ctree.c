@@ -5274,7 +5274,7 @@ int btrfs_compare_trees(struct btrfs_root *left_root,
 			ctransid = btrfs_root_ctransid(&right_root->root_item);
 			spin_unlock(&right_root->root_times_lock);
 			if (ctransid != right_start_ctransid)
-				left_start_ctransid = 0;
+				right_start_ctransid = 0;
 
 			if (!left_start_ctransid || !right_start_ctransid) {
 				WARN(1, KERN_WARNING
