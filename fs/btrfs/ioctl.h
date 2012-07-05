@@ -295,12 +295,17 @@ struct btrfs_ioctl_get_dev_stats {
 	__u64 unused[128 - 2 - BTRFS_DEV_STAT_VALUES_MAX]; /* pad to 1k */
 };
 
+struct btrfs_ioctl_timespec {
+	__u64 sec;
+	__u32 nsec;
+};
+
 struct btrfs_ioctl_received_subvol_args {
 	char	uuid[BTRFS_UUID_SIZE];	/* in */
 	__u64	stransid;		/* in */
 	__u64	rtransid;		/* out */
-	struct timespec stime;		/* in */
-	struct timespec rtime;		/* out */
+	struct btrfs_ioctl_timespec stime; /* in */
+	struct btrfs_ioctl_timespec rtime; /* out */
 	__u64	reserved[16];
 };
 
