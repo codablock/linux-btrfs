@@ -23,12 +23,51 @@
 #include "print-tree.h"
 
 /*
+ * Read a root item from the tree. In case we detect a root item smaller then
+ * sizeof(root_item), we know it's an old version of the root structure and
+ * initialize all new fields to zero. The same happens if we detect mismatching
+ * generation numbers as then we know the root was once mounted with an older
+ * kernel that was not aware of the root item structure change.
+ */
+void btrfs_read_root_item(struct btrfs_root *root,
+			 struct extent_buffer *eb, int slot,
+			 struct btrfs_root_item *item)
+{
+	uuid_le uuid;
+	int len;
+	int need_reset = 0;
+
+	len = btrfs_item_size_nr(eb, slot);
+	read_extent_buffer(eb, item, btrfs_item_ptr_offset(eb, slot),
+			min_t(int, len, (int)sizeof(*item)));
+	if (len < sizeof(*item))
+		need_reset = 1;
+	if (!need_reset && btrfs_root_generation(item)
+		!= btrfs_root_generation_v2(item)) {
+		if (btrfs_root_generation_v2(item) != 0) {
+			printk(KERN_WARNING "btrfs: mismatching "
+					"generation and generation_v2 "
+					"found in root item. This root "
+					"was probably mounted with an "
+					"older kernel. Resetting all "
+					"new fields.\n");
+		}
+		need_reset = 1;
+	}
+	if (need_reset) {
+		memset(&item->generation_v2, 0,
+			sizeof(*item) - offsetof(struct btrfs_root_item,
+					generation_v2));
+
+		uuid_le_gen(&uuid);
+		memcpy(item->uuid, uuid.b, BTRFS_UUID_SIZE);
+	}
+}
+
+/*
  * lookup the root with the highest offset for a given objectid.  The key we do
  * find is copied into 'key'.  If we find something return 0, otherwise 1, < 0
  * on error.
- * We also check if the root was once mounted with an older kernel. If we detect
- * this, the new fields coming after 'level' get overwritten with zeros so to
- * invalidate the fields.
  */
 int btrfs_find_last_root(struct btrfs_root *root, u64 objectid,
 			struct btrfs_root_item *item, struct btrfs_key *key)
@@ -39,9 +78,6 @@ int btrfs_find_last_root(struct btrfs_root *root, u64 objectid,
 	struct extent_buffer *l;
 	int ret;
 	int slot;
-	int len;
-	int need_reset = 0;
-	uuid_le uuid;
 
 	search_key.objectid = objectid;
 	search_key.type = BTRFS_ROOT_ITEM_KEY;
@@ -67,33 +103,8 @@ int btrfs_find_last_root(struct btrfs_root *root, u64 objectid,
 		ret = 1;
 		goto out;
 	}
-	if (item) {
-		len = btrfs_item_size_nr(l, slot);
-		read_extent_buffer(l, item, btrfs_item_ptr_offset(l, slot),
-				min_t(int, len, (int)sizeof(*item)));
-		if (len < sizeof(*item))
-			need_reset = 1;
-		if (!need_reset && btrfs_root_generation(item)
-			!= btrfs_root_generation_v2(item)) {
-			if (btrfs_root_generation_v2(item) != 0) {
-				printk(KERN_WARNING "btrfs: mismatching "
-						"generation and generation_v2 "
-						"found in root item. This root "
-						"was probably mounted with an "
-						"older kernel. Resetting all "
-						"new fields.\n");
-			}
-			need_reset = 1;
-		}
-		if (need_reset) {
-			memset(&item->generation_v2, 0,
-				sizeof(*item) - offsetof(struct btrfs_root_item,
-						generation_v2));
-
-			uuid_le_gen(&uuid);
-			memcpy(item->uuid, uuid.b, BTRFS_UUID_SIZE);
-		}
-	}
+	if (item)
+		btrfs_read_root_item(root, l, slot, item);
 	if (key)
 		memcpy(key, &found_key, sizeof(found_key));
 
