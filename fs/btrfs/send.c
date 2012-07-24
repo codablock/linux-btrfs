@@ -281,7 +281,7 @@ out:
 	return ret;
 }
 
-static int fs_path_add(struct fs_path *p, char *name, int name_len)
+static int fs_path_add(struct fs_path *p, const char *name, int name_len)
 {
 	int ret;
 
@@ -324,6 +324,14 @@ static int fs_path_add_from_extent_buffer(struct fs_path *p,
 
 out:
 	return ret;
+}
+
+static void fs_path_remove(struct fs_path *p)
+{
+	BUG_ON(p->reversed);
+	while (p->start != p->end && *p->end != '/')
+		p->end--;
+	*p->end = 0;
 }
 
 static int fs_path_copy(struct fs_path *p, struct fs_path *from)
