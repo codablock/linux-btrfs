@@ -840,7 +840,8 @@ out:
 	return ret;
 }
 
-typedef int (*iterate_dir_item_t)(int num, const char *name, int name_len,
+typedef int (*iterate_dir_item_t)(int num, struct btrfs_key *di_key,
+				  const char *name, int name_len,
 				  const char *data, int data_len,
 				  u8 type, void *ctx);
 
@@ -861,6 +862,7 @@ static int iterate_dir_item(struct send_ctx *sctx,
 	struct btrfs_item *item;
 	struct btrfs_dir_item *di;
 	struct btrfs_path *tmp_path = NULL;
+	struct btrfs_key di_key;
 	char *buf = NULL;
 	char *buf2 = NULL;
 	int buf_len;
@@ -900,6 +902,7 @@ static int iterate_dir_item(struct send_ctx *sctx,
 		name_len = btrfs_dir_name_len(eb, di);
 		data_len = btrfs_dir_data_len(eb, di);
 		type = btrfs_dir_type(eb, di);
+		btrfs_dir_item_key_to_cpu(eb, di, &di_key);
 
 		if (name_len + data_len > buf_len) {
 			buf_len = PAGE_ALIGN(name_len + data_len);
@@ -934,8 +937,8 @@ static int iterate_dir_item(struct send_ctx *sctx,
 		di = (struct btrfs_dir_item *)((char *)di + len);
 		cur += len;
 
-		ret = iterate(num, buf, name_len, buf + name_len, data_len,
-				type, ctx);
+		ret = iterate(num, &di_key, buf, name_len, buf + name_len,
+				data_len, type, ctx);
 		if (ret < 0)
 			goto out;
 		if (ret) {
@@ -3055,7 +3058,8 @@ out:
 	return ret;
 }
 
-static int __process_new_xattr(int num, const char *name, int name_len,
+static int __process_new_xattr(int num, struct btrfs_key *di_key,
+			       const char *name, int name_len,
 			       const char *data, int data_len,
 			       u8 type, void *ctx)
 {
@@ -3095,7 +3099,8 @@ out:
 	return ret;
 }
 
-static int __process_deleted_xattr(int num, const char *name, int name_len,
+static int __process_deleted_xattr(int num, struct btrfs_key *di_key,
+				   const char *name, int name_len,
 				   const char *data, int data_len,
 				   u8 type, void *ctx)
 {
@@ -3146,7 +3151,8 @@ struct find_xattr_ctx {
 	int found_data_len;
 };
 
-static int __find_xattr(int num, const char *name, int name_len,
+static int __find_xattr(int num, struct btrfs_key *di_key,
+			const char *name, int name_len,
 			const char *data, int data_len,
 			u8 type, void *vctx)
 {
@@ -3197,7 +3203,8 @@ static int find_xattr(struct send_ctx *sctx,
 }
 
 
-static int __process_changed_new_xattr(int num, const char *name, int name_len,
+static int __process_changed_new_xattr(int num, struct btrfs_key *di_key,
+				       const char *name, int name_len,
 				       const char *data, int data_len,
 				       u8 type, void *ctx)
 {
@@ -3211,13 +3218,13 @@ static int __process_changed_new_xattr(int num, const char *name, int name_len,
 			sctx->cmp_key, name, name_len, &found_data,
 			&found_data_len);
 	if (ret == -ENOENT) {
-		ret = __process_new_xattr(num, name, name_len, data, data_len,
-				type, ctx);
+		ret = __process_new_xattr(num, di_key, name, name_len, data,
+				data_len, type, ctx);
 	} else if (ret >= 0) {
 		if (data_len != found_data_len ||
 		    memcmp(data, found_data, data_len)) {
-			ret = __process_new_xattr(num, name, name_len, data,
-					data_len, type, ctx);
+			ret = __process_new_xattr(num, di_key, name, name_len,
+					data, data_len, type, ctx);
 		} else {
 			ret = 0;
 		}
@@ -3228,8 +3235,8 @@ static int __process_changed_new_xattr(int num, const char *name, int name_len,
 	return ret;
 }
 
-static int __process_changed_deleted_xattr(int num, const char *name,
-					   int name_len,
+static int __process_changed_deleted_xattr(int num, struct btrfs_key *di_key,
+					   const char *name, int name_len,
 					   const char *data, int data_len,
 					   u8 type, void *ctx)
 {
@@ -3239,7 +3246,7 @@ static int __process_changed_deleted_xattr(int num, const char *name,
 	ret = find_xattr(sctx, sctx->send_root, sctx->left_path, sctx->cmp_key,
 			name, name_len, NULL, NULL);
 	if (ret == -ENOENT)
-		ret = __process_deleted_xattr(num, name, name_len, data,
+		ret = __process_deleted_xattr(num, di_key, name, name_len, data,
 				data_len, type, ctx);
 	else if (ret >= 0)
 		ret = 0;
