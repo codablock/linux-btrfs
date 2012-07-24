@@ -2641,8 +2641,8 @@ verbose_printk("btrfs: process_recorded_refs %llu\n", sctx->cur_ino);
 				if (ret < 0)
 					goto out;
 			} else {
-				ret = send_link(sctx, valid_path,
-						cur->full_path);
+				ret = send_link(sctx, cur->full_path,
+						valid_path);
 				if (ret < 0)
 					goto out;
 			}
