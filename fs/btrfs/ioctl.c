@@ -3468,6 +3468,8 @@ static long btrfs_ioctl_set_received_subvol(struct file *file,
 	ret = btrfs_update_root(trans, root->fs_info->tree_root,
 				&root->root_key, &root->root_item);
 	if (ret < 0) {
+		btrfs_end_transaction(trans, root);
+		trans = NULL;
 		goto out;
 	} else {
 		ret = btrfs_commit_transaction(trans, root);
