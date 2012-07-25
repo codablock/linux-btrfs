@@ -201,6 +201,10 @@ out_abort:
 int btrfs_insert_root(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		      struct btrfs_key *key, struct btrfs_root_item *item)
 {
+	/*
+	 * Make sure generation v1 and v2 match. See update_root for details.
+	 */
+	btrfs_set_root_generation_v2(item, btrfs_root_generation(item));
 	return btrfs_insert_item(trans, root, key, item, sizeof(*item));
 }
 
