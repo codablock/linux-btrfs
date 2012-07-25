@@ -306,7 +306,8 @@ struct btrfs_ioctl_received_subvol_args {
 	__u64	rtransid;		/* out */
 	struct btrfs_ioctl_timespec stime; /* in */
 	struct btrfs_ioctl_timespec rtime; /* out */
-	__u64	reserved[16];
+	__u64	flags;			/* in */
+	__u64	reserved[16];		/* in */
 };
 
 struct btrfs_ioctl_send_args {
