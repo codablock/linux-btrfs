@@ -3729,6 +3729,7 @@ static int is_extent_unchanged(struct send_ctx *sctx,
 	u64 right_disknr;
 	u64 left_offset;
 	u64 right_offset;
+	u64 left_offset_fixed;
 	u64 left_len;
 	u64 right_len;
 	u8 left_type;
@@ -3752,53 +3753,127 @@ static int is_extent_unchanged(struct send_ctx *sctx,
 		goto out;
 	}
 
+	/*
+	 * Following comments will refer to these graphics. L is the left
+	 * extents which we are checking at the moment. 1-8 are the right
+	 * extents that we iterate.
+	 *
+	 *       |-----L-----|
+	 * |-1-|-2a-|-3-|-4-|-5-|-6-|
+	 *
+	 *       |-----L-----|
+	 * |--1--|-2b-|...(same as above)
+	 *
+	 * Alternative situation. Happens on files where extents got split.
+	 *       |-----L-----|
+	 * |-----------7-----------|-6-|
+	 *
+	 * Alternative situation. Happens on files which got larger.
+	 *       |-----L-----|
+	 * |-8-|
+	 * Nothing follows after 8.
+	 */
+
 	key.objectid = ekey->objectid;
 	key.type = BTRFS_EXTENT_DATA_KEY;
 	key.offset = ekey->offset;
+	ret = btrfs_search_slot_for_read(sctx->parent_root, &key, path, 0, 0);
+	if (ret < 0)
+		goto out;
+	if (ret) {
+		ret = 0;
+		goto out;
+	}
 
-	while (1) {
-		ret = btrfs_search_slot_for_read(sctx->parent_root, &key, path,
-				0, 0);
-		if (ret < 0)
-			goto out;
-		if (ret) {
-			ret = 0;
-			goto out;
-		}
-		btrfs_item_key_to_cpu(path->nodes[0], &found_key,
-				path->slots[0]);
-		if (found_key.objectid != key.objectid ||
-		    found_key.type != key.type) {
-			ret = 0;
-			goto out;
-		}
+	/*
+	 * Handle special case where the right side has no extents at all.
+	 */
+	eb = path->nodes[0];
+	slot = path->slots[0];
+	btrfs_item_key_to_cpu(eb, &found_key, slot);
+	if (found_key.objectid != key.objectid ||
+	    found_key.type != key.type) {
+		ret = 0;
+		goto out;
+	}
 
-		eb = path->nodes[0];
-		slot = path->slots[0];
-
+	/*
+	 * We're now on 2a, 2b or 7.
+	 */
+	key = found_key;
+	while (key.offset < ekey->offset + left_len) {
 		ei = btrfs_item_ptr(eb, slot, struct btrfs_file_extent_item);
 		right_type = btrfs_file_extent_type(eb, ei);
 		right_disknr = btrfs_file_extent_disk_bytenr(eb, ei);
 		right_len = btrfs_file_extent_num_bytes(eb, ei);
 		right_offset = btrfs_file_extent_offset(eb, ei);
-		btrfs_release_path(path);
 
 		if (right_type != BTRFS_FILE_EXTENT_REG) {
 			ret = 0;
 			goto out;
 		}
 
-		if (left_disknr != right_disknr) {
+		/*
+		 * Are we at extent 8? If yes, we know the extent is changed.
+		 * This may only happen on the first iteration.
+		 */
+		if (found_key.offset + right_len < ekey->offset) {
 			ret = 0;
 			goto out;
 		}
 
-		key.offset = found_key.offset + right_len;
-		if (key.offset >= ekey->offset + left_len) {
-			ret = 1;
+		left_offset_fixed = left_offset;
+		if (key.offset < ekey->offset) {
+			/* Fix the right offset for 2a and 7. */
+			right_offset += ekey->offset - key.offset;
+		} else {
+			/* Fix the left offset for all behind 2a and 2b */
+			left_offset_fixed += key.offset - ekey->offset;
+		}
+
+		/*
+		 * Check if we have the same extent.
+		 */
+		if (left_disknr + left_offset_fixed !=
+				right_disknr + right_offset) {
+			ret = 0;
 			goto out;
 		}
+
+		/*
+		 * Go to the next extent.
+		 */
+		ret = btrfs_next_item(sctx->parent_root, path);
+		if (ret < 0)
+			goto out;
+		if (!ret) {
+			eb = path->nodes[0];
+			slot = path->slots[0];
+			btrfs_item_key_to_cpu(eb, &found_key, slot);
+		}
+		if (ret || found_key.objectid != key.objectid ||
+		    found_key.type != key.type) {
+			key.offset += right_len;
+			break;
+		} else {
+			if (found_key.offset != key.offset + right_len) {
+				/* Should really not happen */
+				ret = -EIO;
+				goto out;
+			}
+		}
+		key = found_key;
 	}
+
+	/*
+	 * We're now behind the left extent (treat as unchanged) or at the end
+	 * of the right side (treat as changed).
+	 */
+	if (key.offset >= ekey->offset + left_len)
+		ret = 1;
+	else
+		ret = 0;
+
 
 out:
 	btrfs_free_path(path);
